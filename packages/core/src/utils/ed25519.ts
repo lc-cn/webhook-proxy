@@ -68,47 +68,28 @@ export class Ed25519 {
    */
   async sign(message: string): Promise<string> {
     try {
-      console.log('[Ed25519] Signing message with tweetnacl (Yunzai style)...');
-      console.log('[Ed25519]   Message:', message);
-      console.log('[Ed25519]   Message length:', message.length);
-      
       // 动态导入 tweetnacl（和 Yunzai 一样）
       // @ts-ignore
       const { sign } = (await import('tweetnacl')).default;
       
       // 处理 secret（和 Yunzai 一样）
       let secret = this.secret;
-      console.log('[Ed25519] Original secret length:', secret.length);
-      console.log('[Ed25519] Original secret (first 8 chars):', secret.substring(0, 8));
-      
       while (secret.length < 32) {
         secret = secret.repeat(2).slice(0, 32);
       }
       
-      console.log('[Ed25519] Final seed (32 bytes):', secret);
-      console.log('[Ed25519] Seed length:', secret.length);
-      
       // 创建 Uint8Array（和 Yunzai 的 Buffer.from 等价）
       const seedBytes = new TextEncoder().encode(secret);
-      console.log('[Ed25519] Seed bytes:', Array.from(seedBytes));
       
       // 生成密钥对（和 Yunzai 一样）
       const keyPair = sign.keyPair.fromSeed(seedBytes);
-      console.log('[Ed25519] Public key bytes:', Array.from(keyPair.publicKey));
-      console.log('[Ed25519] Public key length:', keyPair.publicKey.length);
-      console.log('[Ed25519] Secret key length:', keyPair.secretKey.length);
       
       // 签名（和 Yunzai 一样）
       const messageBytes = new TextEncoder().encode(message);
       const signatureBytes = sign.detached(messageBytes, keyPair.secretKey);
       
-      console.log('[Ed25519] Signature bytes length:', signatureBytes.length);
-      
       // 转换为 hex（和 Yunzai 的 Buffer.toString('hex') 等价）
-      const signature = bytesToHex(signatureBytes);
-      console.log('[Ed25519] Signature:', signature.substring(0, 32) + '...');
-      
-      return signature;
+      return bytesToHex(signatureBytes);
     } catch (error) {
       console.error('[Ed25519] Sign error:', error);
       throw error;
@@ -124,10 +105,6 @@ export class Ed25519 {
    */
   async verify(signature: string, message: string): Promise<boolean> {
     try {
-      console.log('[Ed25519] Verifying signature with tweetnacl...');
-      console.log('[Ed25519]   Message length:', message.length);
-      console.log('[Ed25519]   Signature length:', signature.length / 2);
-      
       // 动态导入 tweetnacl
       // @ts-ignore
       const { sign } = (await import('tweetnacl')).default;
@@ -141,8 +118,6 @@ export class Ed25519 {
       const seedBytes = new TextEncoder().encode(secret);
       const keyPair = sign.keyPair.fromSeed(seedBytes);
       
-      console.log('[Ed25519]   Public key length:', keyPair.publicKey.length);
-      
       const messageBytes = new TextEncoder().encode(message);
       const signatureBytes = hexToBytes(signature);
       
@@ -153,11 +128,7 @@ export class Ed25519 {
       }
       
       // 使用 tweetnacl 验证签名
-      const isValid = sign.detached.verify(messageBytes, signatureBytes, keyPair.publicKey);
-      
-      console.log('[Ed25519]   Verification result:', isValid);
-      
-      return isValid;
+      return sign.detached.verify(messageBytes, signatureBytes, keyPair.publicKey);
     } catch (error) {
       console.error('[Ed25519] Verify error:', error);
       return false;

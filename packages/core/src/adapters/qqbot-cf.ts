@@ -201,8 +201,6 @@ export class QQBotAdapter {
    * 注意：签名顺序是 plain_token + event_ts
    */
   private async handleVerification(payload: QQBotPayload): Promise<Response> {
-    console.log('[QQBot] Verification request:', JSON.stringify(payload.d));
-    
     const { plain_token, event_ts } = payload.d;
 
     if (!plain_token || !event_ts) {
@@ -220,30 +218,15 @@ export class QQBotAdapter {
       const plainTokenStr = String(plain_token);
       const eventTsStr = String(event_ts);
       
-      console.log('[QQBot] plain_token:', plainTokenStr);
-      console.log('[QQBot] event_ts:', eventTsStr);
-      console.log('[QQBot] plain_token type:', typeof plain_token);
-      console.log('[QQBot] event_ts type:', typeof event_ts);
-      
-      // 签名：event_ts + plain_token（根据成功的实现）
+      // 签名：event_ts + plain_token
       const message = eventTsStr + plainTokenStr;
-      console.log('[QQBot] Message to sign:', message);
-      console.log('[QQBot] Message length:', message.length);
-      
       const signature = await this.ed25519.sign(message);
 
-      console.log('[QQBot] Verification signature:', signature.substring(0, 16) + '...');
-      console.log('[QQBot] Signature length:', signature.length);
-
-      const responseBody = {
-        plain_token,  // 保持原始类型
-        signature,
-      };
-
-      console.log('[QQBot] Verification response body:', JSON.stringify(responseBody));
-
       return new Response(
-        JSON.stringify(responseBody),
+        JSON.stringify({
+          plain_token,
+          signature,
+        }),
         {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
