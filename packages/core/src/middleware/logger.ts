@@ -10,7 +10,12 @@ export async function loggerMiddleware(c: Context, next: Next) {
   
   console.log(`[${new Date().toISOString()}] ${method} ${path}`);
   
-  await next();
+  try {
+    await next();
+  } catch (error) {
+    console.error(`[Logger] Error:`, error);
+    throw error;
+  }
   
   const duration = Date.now() - start;
   const status = c.res.status;

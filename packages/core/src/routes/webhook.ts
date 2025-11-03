@@ -31,25 +31,48 @@ type Platform = typeof SUPPORTED_PLATFORMS[number];
 webhook.post('/:platform/:randomKey', async (c) => {
   const platform = c.req.param('platform') as Platform;
   const randomKey = c.req.param('randomKey');
+  
+  console.log(`[Webhook] === START === ${platform}/${randomKey}`);
+  const startTime = Date.now();
 
   // 启动性能监控
   const perfMonitor = new PerformanceMonitor(platform, randomKey);
 
   try {
     // 1. 验证平台
+    console.log(`[Webhook] Step 1: Validating platform: ${platform}`);
     if (!SUPPORTED_PLATFORMS.includes(platform as any)) {
       perfMonitor.end('error', 'InvalidPlatform');
       return c.text('Invalid platform', 400);
     }
 
-    // 2. 查找 proxy 配置（带缓存优化）
-    const proxy = await getProxyByRandomKey(c.env!.DB as D1Database, randomKey);
+    // 2. 查找 proxy 配置（带超时保护）
+    console.log(`[Webhook] Step 2: Querying DB for randomKey: ${randomKey}`);
+    const dbStart = Date.now();
+    
+    // 添加超时保护：5 秒
+    const dbQueryPromise = getProxyByRandomKey(c.env!.DB as D1Database, randomKey);
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
+    
+    const proxy = await Promise.race([dbQueryPromise, timeoutPromise]);
+    const dbDuration = Date.now() - dbStart;
+    
+    console.log(`[Webhook] DB query took: ${dbDuration}ms`);
+    
+    if (proxy === null) {
+      console.error(`[Webhook] DB query timeout after ${dbDuration}ms`);
+      perfMonitor.end('error', 'DBTimeout');
+      return c.text('Database timeout', 500);
+    }
 
     if (!proxy) {
+      console.log(`[Webhook] Proxy not found for randomKey: ${randomKey}`);
       perfMonitor.end('error', 'ProxyNotFound');
       return c.text('Proxy not found', 404);
     }
 
+    console.log(`[Webhook] Step 3: Proxy found, checking status`);
+    
     if (!proxy.active) {
       perfMonitor.end('error', 'ProxyInactive');
       return c.text('Proxy is inactive', 403);
@@ -59,6 +82,8 @@ webhook.post('/:platform/:randomKey', async (c) => {
       perfMonitor.end('error', 'PlatformMismatch');
       return c.text('Platform mismatch', 400);
     }
+    
+    console.log(`[Webhook] Step 4: Proxy validation passed`);
 
     console.log(`[Webhook] Received: ${platform}/${randomKey}`);
 
@@ -73,18 +98,25 @@ webhook.post('/:platform/:randomKey', async (c) => {
     // 4. 处理 Webhook 请求（验证签名）
     // 需要克隆请求，因为 handleWebhook 会读取 body
     const clonedRequest = c.req.raw.clone();
+    
+    console.log(`[Webhook] Calling adapter.handleWebhook for ${platform}`);
     const response = await adapter.handleWebhook(c.req.raw);
+    console.log(`[Webhook] Adapter returned status: ${response.status}`);
 
     // 5. 如果验证成功，转换并广播事件
     // 注意：QQ Bot 的 OpCode 13（回调验证）不需要广播
     if (response.status === 200) {
       // QQ Bot 特殊处理：只广播 OpCode 0 的事件
       if (platform === 'qqbot') {
+        console.log('[Webhook] QQ Bot: reading body to check OpCode');
         const bodyText = await clonedRequest.text();
         const payload = JSON.parse(bodyText);
         
+        console.log(`[Webhook] QQ Bot OpCode: ${payload.op}`);
+        
         // 只有 OpCode 0（Dispatch）才需要广播
         if (payload.op === 0) {
+          console.log('[Webhook] QQ Bot: Broadcasting OpCode 0 event');
           c.executionCtx.waitUntil(
             broadcastEvent(c, adapter, clonedRequest.clone(), proxy.id, randomKey)
           );

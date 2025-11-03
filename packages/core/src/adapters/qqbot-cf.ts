@@ -4,7 +4,7 @@
  * 文档：https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/interface-framework/event-emit.html
  * 
  * QQ Bot Webhook 流程：
- * 1. OpCode 13：回调地址验证 - 需要签名 event_ts + plain_token 并返回
+ * 1. OpCode 13：回调地址验证 - 需要签名 plain_token + event_ts 并返回
  * 2. OpCode 0：事件推送 - 需要验证签名，然后返回 OpCode 12 (ACK)
  * 
  * 签名验证：
@@ -195,11 +195,13 @@ export class QQBotAdapter {
    * 需要返回：
    * {
    *   "plain_token": "xxx",
-   *   "signature": sign(event_ts + plain_token)
+   *   "signature": sign(plain_token + event_ts)
    * }
+   * 
+   * 注意：签名顺序是 plain_token + event_ts
    */
   private async handleVerification(payload: QQBotPayload): Promise<Response> {
-    console.log('[QQBot] Verification request:', payload.d);
+    console.log('[QQBot] Verification request:', JSON.stringify(payload.d));
     
     const { plain_token, event_ts } = payload.d;
 
@@ -214,14 +216,27 @@ export class QQBotAdapter {
     }
 
     try {
-      // 签名：event_ts + plain_token
-      const message = event_ts + plain_token;
+      // 确保转换为字符串（QQ Bot 可能发送数字类型的 event_ts）
+      const plainTokenStr = String(plain_token);
+      const eventTsStr = String(event_ts);
+      
+      console.log('[QQBot] plain_token:', plainTokenStr);
+      console.log('[QQBot] event_ts:', eventTsStr);
+      console.log('[QQBot] plain_token type:', typeof plain_token);
+      console.log('[QQBot] event_ts type:', typeof event_ts);
+      
+      // 签名：event_ts + plain_token（根据成功的实现）
+      const message = eventTsStr + plainTokenStr;
+      console.log('[QQBot] Message to sign:', message);
+      console.log('[QQBot] Message length:', message.length);
+      
       const signature = await this.ed25519.sign(message);
 
       console.log('[QQBot] Verification signature:', signature.substring(0, 16) + '...');
+      console.log('[QQBot] Signature length:', signature.length);
 
       const responseBody = {
-        plain_token,
+        plain_token,  // 保持原始类型
         signature,
       };
 

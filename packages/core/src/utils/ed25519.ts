@@ -11,6 +11,7 @@
  * 1. OpCode 13（回调验证）：签名 event_ts + plain_token 并返回
  * 2. OpCode 0（事件推送）：验证 QQ Bot 发来的签名（timestamp + body）
  * 3. 签名算法：Ed25519，使用 App Secret 派生密钥对
+ * 4. 使用 tweetnacl 库（和成功的 KarinJS 实现完全一致）
  * 
  * 密钥派生规则：
  * - 将 secret 重复填充到至少 32 字节
@@ -18,8 +19,8 @@
  * - 使用种子通过 TweetNaCl 兼容的方式生成 Ed25519 密钥对
  */
 
-// @ts-ignore - @noble/curves 可能没有类型定义
-import { ed25519 } from '@noble/curves/ed25519.js';
+// 注意：不在顶层导入 tweetnacl，而是在使用时动态导入
+// 这样可以确保在 Cloudflare Workers 环境中正确加载
 
 /**
  * 将 hex 字符串转换为 Uint8Array
@@ -48,95 +49,64 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 /**
- * 从 App Secret 派生出 32 字节的种子
- * 这是 QQ Bot 的约定：重复填充到至少 32 字节，然后截取前 32 字节
- * 
- * @param secret - App Secret 字符串
- * @returns 32 字节种子
- */
-function deriveSeed(secret: string): Uint8Array {
-  let finalSeed = secret;
-  while (finalSeed.length < 32) {
-    finalSeed = finalSeed.repeat(2);
-  }
-  finalSeed = finalSeed.slice(0, 32);
-  
-  return new TextEncoder().encode(finalSeed);
-}
-
-/**
  * Ed25519 签名和验证类
- * 使用 @noble/curves/ed25519（TweetNaCl 兼容）
+ * 使用 tweetnacl（和 Yunzai-QQBot-Plugin 完全一致）
  */
 export class Ed25519 {
   private secret: string;
-  private seedCache?: Uint8Array;
-  private privateKeyCache?: Uint8Array;
-  private publicKeyCache?: Uint8Array;
 
   constructor(secret: string) {
     this.secret = secret;
   }
 
   /**
-   * 获取种子（缓存）
-   */
-  private getSeed(): Uint8Array {
-    if (!this.seedCache) {
-      this.seedCache = deriveSeed(this.secret);
-    }
-    return this.seedCache;
-  }
-
-  /**
-   * 获取私钥（从种子派生，TweetNaCl 兼容）
-   */
-  private getPrivateKey(): Uint8Array {
-    if (!this.privateKeyCache) {
-      const seed = this.getSeed();
-      // @noble/curves 的 ed25519.utils.getExtendedPublicKey 返回完整的私钥
-      // 但我们需要使用种子直接作为私钥（TweetNaCl 方式）
-      this.privateKeyCache = seed;
-    }
-    return this.privateKeyCache;
-  }
-
-  /**
-   * 获取公钥（从私钥派生）
-   */
-  private getPublicKey(): Uint8Array {
-    if (!this.publicKeyCache) {
-      const privateKey = this.getPrivateKey();
-      // 从私钥（种子）生成公钥
-      const pubKey = ed25519.getPublicKey(privateKey);
-      this.publicKeyCache = pubKey instanceof Uint8Array ? pubKey : new Uint8Array(pubKey);
-    }
-    return this.publicKeyCache;
-  }
-
-  /**
    * 签名消息（用于 OpCode 13 回调验证）
+   * 完全按照 Yunzai 的实现
    * 
    * @param message - 待签名的消息字符串
    * @returns 签名（hex 编码）
    */
   async sign(message: string): Promise<string> {
     try {
-      const privateKey = this.getPrivateKey();
-      const messageBytes = new TextEncoder().encode(message);
-      
-      console.log('[Ed25519] Signing message...');
+      console.log('[Ed25519] Signing message with tweetnacl (Yunzai style)...');
       console.log('[Ed25519]   Message:', message);
-      console.log('[Ed25519]   Message bytes length:', messageBytes.length);
-      console.log('[Ed25519]   Private key (seed) length:', privateKey.length);
+      console.log('[Ed25519]   Message length:', message.length);
       
-      // 使用 @noble/curves 签名
-      const signatureBytes = ed25519.sign(messageBytes, privateKey);
+      // 动态导入 tweetnacl（和 Yunzai 一样）
+      // @ts-ignore
+      const { sign } = (await import('tweetnacl')).default;
       
-      console.log('[Ed25519]   Signature length:', signatureBytes.length);
+      // 处理 secret（和 Yunzai 一样）
+      let secret = this.secret;
+      console.log('[Ed25519] Original secret length:', secret.length);
+      console.log('[Ed25519] Original secret (first 8 chars):', secret.substring(0, 8));
       
+      while (secret.length < 32) {
+        secret = secret.repeat(2).slice(0, 32);
+      }
+      
+      console.log('[Ed25519] Final seed (32 bytes):', secret);
+      console.log('[Ed25519] Seed length:', secret.length);
+      
+      // 创建 Uint8Array（和 Yunzai 的 Buffer.from 等价）
+      const seedBytes = new TextEncoder().encode(secret);
+      console.log('[Ed25519] Seed bytes:', Array.from(seedBytes));
+      
+      // 生成密钥对（和 Yunzai 一样）
+      const keyPair = sign.keyPair.fromSeed(seedBytes);
+      console.log('[Ed25519] Public key bytes:', Array.from(keyPair.publicKey));
+      console.log('[Ed25519] Public key length:', keyPair.publicKey.length);
+      console.log('[Ed25519] Secret key length:', keyPair.secretKey.length);
+      
+      // 签名（和 Yunzai 一样）
+      const messageBytes = new TextEncoder().encode(message);
+      const signatureBytes = sign.detached(messageBytes, keyPair.secretKey);
+      
+      console.log('[Ed25519] Signature bytes length:', signatureBytes.length);
+      
+      // 转换为 hex（和 Yunzai 的 Buffer.toString('hex') 等价）
       const signature = bytesToHex(signatureBytes);
-      console.log('[Ed25519]   Signature:', signature.substring(0, 32) + '...');
+      console.log('[Ed25519] Signature:', signature.substring(0, 32) + '...');
       
       return signature;
     } catch (error) {
@@ -154,14 +124,27 @@ export class Ed25519 {
    */
   async verify(signature: string, message: string): Promise<boolean> {
     try {
-      const publicKey = this.getPublicKey();
+      console.log('[Ed25519] Verifying signature with tweetnacl...');
+      console.log('[Ed25519]   Message length:', message.length);
+      console.log('[Ed25519]   Signature length:', signature.length / 2);
+      
+      // 动态导入 tweetnacl
+      // @ts-ignore
+      const { sign } = (await import('tweetnacl')).default;
+      
+      // 处理 secret
+      let secret = this.secret;
+      while (secret.length < 32) {
+        secret = secret.repeat(2).slice(0, 32);
+      }
+      
+      const seedBytes = new TextEncoder().encode(secret);
+      const keyPair = sign.keyPair.fromSeed(seedBytes);
+      
+      console.log('[Ed25519]   Public key length:', keyPair.publicKey.length);
+      
       const messageBytes = new TextEncoder().encode(message);
       const signatureBytes = hexToBytes(signature);
-      
-      console.log('[Ed25519] Verifying signature...');
-      console.log('[Ed25519]   Message length:', messageBytes.length);
-      console.log('[Ed25519]   Signature length:', signatureBytes.length);
-      console.log('[Ed25519]   Public key length:', publicKey.length);
       
       // Ed25519 签名应该是 64 字节
       if (signatureBytes.length !== 64) {
@@ -169,8 +152,8 @@ export class Ed25519 {
         return false;
       }
       
-      // 使用 @noble/curves 验证签名
-      const isValid = ed25519.verify(signatureBytes, messageBytes, publicKey);
+      // 使用 tweetnacl 验证签名
+      const isValid = sign.detached.verify(messageBytes, signatureBytes, keyPair.publicKey);
       
       console.log('[Ed25519]   Verification result:', isValid);
       
@@ -216,7 +199,7 @@ export async function signQQBotCallback(
   plainToken: string,
   secret: string
 ): Promise<string> {
-  // QQ Bot 回调验证算法：event_ts + plain_token
+  // QQ Bot 回调验证算法：event_ts + plain_token（和 KarinJS 一致）
   const message = eventTs + plainToken;
   const ed25519Instance = new Ed25519(secret);
   return ed25519Instance.sign(message);
