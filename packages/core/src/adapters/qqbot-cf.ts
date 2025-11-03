@@ -123,6 +123,9 @@ export class QQBotAdapter {
    * 处理 Webhook 请求
    */
   async handleWebhook(request: Request): Promise<Response> {
+    const startTime = Date.now();
+    console.log('[QQBot] ⏱️  handleWebhook started');
+    
     try {
       // 读取请求体
       const body = await request.text();
@@ -158,24 +161,43 @@ export class QQBotAdapter {
 
       // 其他 OpCode 需要验证签名
       if (this.config.verifySignature && timestamp && signature) {
+        console.log('[QQBot] Verifying signature for OpCode', payload.op);
+        const verifyStart = Date.now();
         const isValid = await this.verifySignature(body, timestamp, signature);
+        const verifyDuration = Date.now() - verifyStart;
+        console.log(`[QQBot] Signature verification took ${verifyDuration}ms, valid: ${isValid}`);
+        
         if (!isValid) {
+          console.error('[QQBot] ❌ Invalid signature!');
           return new Response('Invalid signature', { status: 401 });
         }
+      } else {
+        console.log('[QQBot] Skip signature verification (verifySignature:', this.config.verifySignature, ')');
       }
 
       // 处理不同的 opcode
+      console.log('[QQBot] Routing to handler for OpCode', payload.op);
+      let response: Response;
+      
       switch (payload.op) {
         
         case 0: // Dispatch - 正常事件推送
-          return this.handleDispatch(payload);
+          response = this.handleDispatch(payload);
+          break;
         
         default:
           console.warn('[QQBot] Unknown opcode:', payload.op);
-          return this.createAckResponse();
+          response = this.createAckResponse();
+          break;
       }
+      
+      const duration = Date.now() - startTime;
+      console.log(`[QQBot] ⏱️  handleWebhook completed in ${duration}ms, status: ${response.status}`);
+      return response;
+      
     } catch (error) {
-      console.error('[QQBot] Handle webhook error:', error);
+      const duration = Date.now() - startTime;
+      console.error(`[QQBot] ❌ Handle webhook error after ${duration}ms:`, error);
       return new Response('Internal server error', { status: 500 });
     }
   }
