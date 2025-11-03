@@ -93,6 +93,8 @@ webhook.post('/:platform/:randomKey', async (c) => {
     if (response.status === 200) {
       // QQ Bot 特殊处理：只广播 OpCode 0 的事件
       if (platform === 'qqbot') {
+        // 需要再克隆一次用于广播，因为检查 OpCode 会消耗 body
+        const broadcastRequest = clonedRequest.clone();
         const bodyText = await clonedRequest.text();
         const payload = JSON.parse(bodyText);
         
@@ -102,7 +104,7 @@ webhook.post('/:platform/:randomKey', async (c) => {
         if (payload.op === 0) {
           console.log('[Webhook] 📡 Broadcasting QQ Bot event...');
           c.executionCtx.waitUntil(
-            broadcastEvent(c, adapter, clonedRequest.clone(), proxy.id, randomKey)
+            broadcastEvent(c, adapter, broadcastRequest, proxy.id, randomKey)
           );
         } else {
           console.log(`[Webhook] Skip broadcast for OpCode ${payload.op}`);
