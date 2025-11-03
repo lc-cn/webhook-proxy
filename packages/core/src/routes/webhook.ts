@@ -89,11 +89,16 @@ webhook.post('/:platform/:randomKey', async (c) => {
         const bodyText = await clonedRequest.text();
         const payload = JSON.parse(bodyText);
         
+        console.log(`[Webhook] QQ Bot OpCode: ${payload.op}, Event Type: ${payload.t || 'N/A'}`);
+        
         // 只有 OpCode 0（Dispatch）才需要广播
         if (payload.op === 0) {
+          console.log('[Webhook] 📡 Broadcasting QQ Bot event...');
           c.executionCtx.waitUntil(
             broadcastEvent(c, adapter, clonedRequest.clone(), proxy.id, randomKey)
           );
+        } else {
+          console.log(`[Webhook] Skip broadcast for OpCode ${payload.op}`);
         }
       } else {
         // 其他平台正常广播
@@ -134,13 +139,22 @@ async function broadcastEvent(
   randomKey: string
 ): Promise<void> {
   try {
+    console.log('[Broadcast] 🚀 Starting broadcast...');
+    
     // 1. 解析 payload
     const payload = await request.json();
+    console.log('[Broadcast] Step 1: Parsed payload:', JSON.stringify(payload).substring(0, 150));
 
     // 2. 转换事件
     const event = adapter.transform(payload, request);
+    console.log('[Broadcast] Step 2: Transformed event:', {
+      id: event.id,
+      platform: event.platform,
+      type: event.type,
+    });
 
     // 3. 更新事件计数（带重试）
+    console.log('[Broadcast] Step 3: Updating event count...');
     await withRetry(
       () => updateProxyEventCount(c.env!.DB as D1Database, proxyId),
       { maxRetries: 2, initialDelay: 100 },
@@ -149,8 +163,10 @@ async function broadcastEvent(
         return true; // 继续重试
       }
     );
+    console.log('[Broadcast] Event count updated ✓');
 
     // 4. 广播到 Durable Object（带重试）
+    console.log('[Broadcast] Step 4: Broadcasting to Durable Object...');
     await withRetry(
       async () => {
         const doId = (c.env as Record<string, any>).WEBHOOK_CONNECTIONS.idFromName(randomKey);
@@ -165,6 +181,7 @@ async function broadcastEvent(
         if (!doResponse.ok) {
           throw new Error(`DO broadcast failed: ${doResponse.status}`);
         }
+        console.log('[Broadcast] Successfully sent to Durable Object ✓');
       },
       { maxRetries: 2, initialDelay: 100 },
       (error, attempt) => {
@@ -173,10 +190,10 @@ async function broadcastEvent(
       }
     );
 
-    console.log(`[Webhook] Event broadcasted: ${event.type}`);
+    console.log(`[Broadcast] ✅ Complete! Event broadcasted: ${event.type}`);
   } catch (error) {
     // 广播失败不影响 Webhook 响应（已经返回了）
-    console.error('[Webhook] Broadcast error:', error);
+    console.error('[Broadcast] ❌ Error:', error);
   }
 }
 

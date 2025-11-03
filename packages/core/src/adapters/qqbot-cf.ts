@@ -243,8 +243,13 @@ export class QQBotAdapter {
    * 
    * 需要返回 HTTP Callback ACK (OpCode 12)
    */
-  private handleDispatch(_payload: QQBotPayload): Response {
-    console.log('[QQBot] Dispatch event received, sending ACK');
+  private handleDispatch(payload: QQBotPayload): Response {
+    console.log('[QQBot] 🎉 Dispatch event received!');
+    console.log('[QQBot]   Event Type:', payload.t);
+    console.log('[QQBot]   Event ID:', payload.id);
+    console.log('[QQBot]   Sequence:', payload.s);
+    console.log('[QQBot]   Payload:', JSON.stringify(payload.d).substring(0, 200));
+    console.log('[QQBot] Sending ACK (OpCode 12)');
     return this.createAckResponse();
   }
 
