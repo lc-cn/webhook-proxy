@@ -43,20 +43,27 @@ webhook.post('/:platform/:randomKey', async (c) => {
     }
 
     // 2. 查找 proxy 配置（带超时保护）
+    const dbStart = Date.now();
     const dbQueryPromise = getProxyByRandomKey(c.env!.DB as D1Database, randomKey);
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000)); // 增加到 10 秒
     
     const proxy = await Promise.race([dbQueryPromise, timeoutPromise]);
+    const dbDuration = Date.now() - dbStart;
     
     if (proxy === null) {
+      console.error(`[Webhook] ❌ D1 timeout after ${dbDuration}ms for key: ${randomKey}`);
       perfMonitor.end('error', 'DBTimeout');
       return c.text('Database timeout', 500);
     }
 
     if (!proxy) {
+      console.warn(`[Webhook] ⚠️  Proxy not found: ${randomKey} (took ${dbDuration}ms)`);
       perfMonitor.end('error', 'ProxyNotFound');
       return c.text('Proxy not found', 404);
     }
+    
+    console.log(`[Webhook] ✓ Proxy found in ${dbDuration}ms`);
+
     
     if (!proxy.active) {
       perfMonitor.end('error', 'ProxyInactive');
