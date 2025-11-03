@@ -76,11 +76,27 @@ webhook.post('/:platform/:randomKey', async (c) => {
     const response = await adapter.handleWebhook(c.req.raw);
 
     // 5. 如果验证成功，转换并广播事件
+    // 注意：QQ Bot 的 OpCode 13（回调验证）不需要广播
     if (response.status === 200) {
-      // 异步处理事件广播，不阻塞响应
-      c.executionCtx.waitUntil(
-        broadcastEvent(c, adapter, clonedRequest, proxy.id, randomKey)
-      );
+      // QQ Bot 特殊处理：只广播 OpCode 0 的事件
+      if (platform === 'qqbot') {
+        const bodyText = await clonedRequest.text();
+        const payload = JSON.parse(bodyText);
+        
+        // 只有 OpCode 0（Dispatch）才需要广播
+        if (payload.op === 0) {
+          c.executionCtx.waitUntil(
+            broadcastEvent(c, adapter, clonedRequest.clone(), proxy.id, randomKey)
+          );
+        } else {
+          console.log(`[Webhook] QQ Bot OpCode ${payload.op}, skip broadcast`);
+        }
+      } else {
+        // 其他平台正常广播
+        c.executionCtx.waitUntil(
+          broadcastEvent(c, adapter, clonedRequest, proxy.id, randomKey)
+        );
+      }
     }
 
     perfMonitor.end('success');
