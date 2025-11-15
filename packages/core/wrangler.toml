@@ -27,6 +27,21 @@ database_id = "ad8e68c8-9ce8-48b8-acb8-f8ea48ecb1f6"  # 运行 npm run db:create
 binding = "SESSIONS"
 id = "b60cd3ab0e1140bcbf986a758650a1cb"  # 需要在 Cloudflare 创建后填入
 
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+persist = true
+head_sampling_rate = 1
+
 # 环境变量
 [vars]
 ENVIRONMENT = "development"
